@@ -1,10 +1,14 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
@@ -45,13 +49,14 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusInternalServerError, "Error reading thumbnail", err)
 		return
 	}
-	fileType := header.Header.Get("Content-Type")
+	defer file.Close()
 
-	fileSlice, err := io.ReadAll(file)
+	extension, err := getExtensionFromHeader(header)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error reading file", err)
+		respondWithError(w, http.StatusBadRequest, "Wrong header", err)
 		return
 	}
+	filename := fmt.Sprintf("%s.%s", videoID, extension)
 
 	videoMetadata, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -60,12 +65,25 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 
 	if videoMetadata.UserID != userID {
-		respondWithError(w, http.StatusUnauthorized, "Not the video owner", err)
+		respondWithError(w, http.StatusUnauthorized, "Not the video owner", nil)
 		return
 	}
 
-	encodedImage := base64.StdEncoding.EncodeToString(fileSlice)
-	thumbnailUrl := fmt.Sprintf("data:%s;base64,%s", fileType, encodedImage)
+	filePath := filepath.Join(cfg.assetsRoot, filename)
+
+	createdFile, err := os.Create(filePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error creating file", err)
+		return
+	}
+	defer createdFile.Close()
+	_, err = io.Copy(createdFile, io.Reader(file))
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error creating file", err)
+		return
+	}
+
+	thumbnailUrl := fmt.Sprintf("/assets/%s", filename)
 
 	video := database.Video{
 		ID:                videoID,
@@ -83,4 +101,15 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 
 	respondWithJSON(w, http.StatusOK, video)
+}
+
+func getExtensionFromHeader(header *multipart.FileHeader) (string, error) {
+	contentHeader := header.Header.Get("Content-Type")
+	mediaType, _, err := mime.ParseMediaType(contentHeader)
+	if (mediaType != "image/jpeg" && mediaType != "image/png") || err != nil {
+		return "", fmt.Errorf("Wrong media type")
+	}
+	splitType := strings.SplitN(mediaType, "/", 2)
+
+	return splitType[1], nil
 }
