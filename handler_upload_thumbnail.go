@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -56,7 +58,10 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Wrong header", err)
 		return
 	}
-	filename := fmt.Sprintf("%s.%s", videoID, extension)
+	randomID := make([]byte, 32, 32)
+	rand.Read(randomID)
+	randomIDString := base64.RawURLEncoding.EncodeToString(randomID)
+	filename := fmt.Sprintf("%s.%s", randomIDString, extension)
 
 	videoMetadata, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -83,7 +88,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	thumbnailUrl := fmt.Sprintf("/assets/%s", filename)
+	thumbnailUrl := fmt.Sprintf("http://localhost:%s/assets/%s", cfg.port, filename)
 
 	video := database.Video{
 		ID:                videoID,
