@@ -77,10 +77,16 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	io.Copy(tempFile, videoFile)
 	tempFile.Seek(0, io.SeekStart)
 
+	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "An error occurred", err)
+		return
+	}
+
 	randomID := make([]byte, 32, 32)
 	rand.Read(randomID)
 	randomIDString := base64.RawURLEncoding.EncodeToString(randomID)
-	key := fmt.Sprintf("%s.mp4", randomIDString)
+	key := fmt.Sprintf("%s/%s.mp4", aspectRatio, randomIDString)
 
 	params := s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
@@ -140,9 +146,9 @@ func getVideoAspectRatio(filepath string) (string, error) {
 	portraitRatio := float64(9) / float64(16)
 
 	if math.Abs(aspectRatio-landscapeRatio) < tolerance {
-		return "16:9", nil
+		return "landscape", nil
 	} else if math.Abs(aspectRatio-portraitRatio) < tolerance {
-		return "9:16", nil
+		return "portrait", nil
 	}
 
 	return "other", nil
