@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -13,8 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -117,7 +114,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Could not put object to S3", err)
 	}
 
-	videoURL := fmt.Sprintf("%s,%s", cfg.s3Bucket, key)
+	videoURL := fmt.Sprintf("%s/%s", cfg.s3CfDistribution, key)
 
 	updatedVid := database.Video{
 		ID:                videoMetadata.ID,
@@ -129,12 +126,6 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	err = cfg.db.UpdateVideo(updatedVid)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "An error occurred", err)
-		return
-	}
-
-	updatedVid, err = cfg.dbVideoToSignedVideo(updatedVid)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "An error occurred", err)
 		return
@@ -194,38 +185,4 @@ func processVideoForFastStart(filePath string) (string, error) {
 	}
 
 	return outputFilePath, nil
-}
-
-func generatePresignedURL(s3Client *s3.Client, bucket, key string, expireTime time.Duration) (string, error) {
-	presignClient := s3.NewPresignClient(s3Client)
-
-	params := s3.GetObjectInput{
-		Bucket: &bucket,
-		Key:    &key,
-	}
-	presignedReq, err := presignClient.PresignGetObject(context.Background(), &params, s3.WithPresignExpires(expireTime))
-	if err != nil {
-		return "", err
-	}
-
-	return presignedReq.URL, nil
-}
-
-func (cfg *apiConfig) dbVideoToSignedVideo(video database.Video) (database.Video, error) {
-	if video.VideoURL == nil {
-		return video, nil
-	}
-
-	parts := strings.Split(*video.VideoURL, ",")
-	if len(parts) != 2 {
-		return database.Video{}, fmt.Errorf("Malformed video URL")
-	}
-
-	signedVideoURL, err := generatePresignedURL(cfg.s3Client, parts[0], parts[1], time.Duration(10)*time.Minute)
-	if err != nil {
-		return database.Video{}, err
-	}
-
-	video.VideoURL = &signedVideoURL
-	return video, nil
 }
